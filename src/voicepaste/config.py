@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 """Configuration models and XDG path helpers for VoicePaste."""
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from __future__ import annotations
+
 import os
 import tomllib
-
+from dataclasses import dataclass, field
+from pathlib import Path
 
 APP_NAME = "voicepaste"
 
@@ -88,6 +87,17 @@ class ShortcutConfig:
 
 
 @dataclass(frozen=True)
+class ListenerConfig:
+    """Voice activation and recording reminder settings."""
+
+    activation_phrase: str = "start dictation"
+    deactivation_phrase: str = "thank you"
+    silence_reminder_seconds: float = 5.0
+    silence_stop_seconds: float = 10.0
+    command_model: str = "vosk-model-small-en-us-0.15"
+
+
+@dataclass(frozen=True)
 class Config:
     """Top-level VoicePaste configuration."""
 
@@ -105,6 +115,7 @@ class Config:
     models: ModelConfig = field(default_factory=ModelConfig)
     glossary: GlossaryConfig = field(default_factory=GlossaryConfig)
     shortcut: ShortcutConfig = field(default_factory=ShortcutConfig)
+    listener: ListenerConfig = field(default_factory=ListenerConfig)
 
     def normalize_model_tier(self, tier: str | None = None) -> str:
         """Validate and normalize a model tier name."""
@@ -131,6 +142,24 @@ def _merge_table(defaults: dict, overrides: dict) -> dict:
         else:
             merged[key] = value
     return merged
+
+
+def _recover_misplaced_vad_threshold(raw: dict) -> None:
+    """Move thresholds written outside ``[shortcut]`` by older releases."""
+
+    shortcut = raw.setdefault("shortcut", {})
+    threshold = raw.pop("vad_threshold", None)
+    for table_name in ("insertion", "models", "glossary"):
+        table = raw.get(table_name)
+        if isinstance(table, dict):
+            threshold = table.pop("vad_threshold", threshold)
+
+    replacements = raw.get("glossary", {}).get("replacements")
+    if isinstance(replacements, dict):
+        threshold = replacements.pop("vad_threshold", threshold)
+
+    if "vad_threshold" not in shortcut and threshold is not None:
+        shortcut["vad_threshold"] = threshold
 
 
 def default_config_dict() -> dict:
@@ -191,7 +220,9 @@ def load_config(path: Path | None = None) -> Config:
     raw = default_config_dict()
     if path.exists():
         with path.open("rb") as fh:
-            raw = _merge_table(raw, tomllib.load(fh))
+            overrides = tomllib.load(fh)
+        _recover_misplaced_vad_threshold(overrides)
+        raw = _merge_table(raw, overrides)
     return Config(
         backend=str(raw["backend"]),
         model_tier=str(raw["model_tier"]),
@@ -204,6 +235,7 @@ def load_config(path: Path | None = None) -> Config:
         models=ModelConfig(**raw["models"]),
         glossary=GlossaryConfig(**raw["glossary"]),
         shortcut=ShortcutConfig(**raw["shortcut"]),
+        listener=ListenerConfig(**raw.get("listener", {})),
     )
 
 
@@ -257,6 +289,13 @@ def write_default_config(path: Path | None = None) -> Path:
                     "vad_threshold = 0.01",
                     "pre_speech_padding_ms = 200",
                     "post_speech_padding_ms = 300",
+                    "",
+                    "[listener]",
+                    'activation_phrase = "start dictation"',
+                    'deactivation_phrase = "thank you"',
+                    "silence_reminder_seconds = 5",
+                    "silence_stop_seconds = 10",
+                    'command_model = "vosk-model-small-en-us-0.15"',
                     "",
                 ]
             )

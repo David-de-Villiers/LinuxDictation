@@ -2,16 +2,17 @@
 
 VoicePaste is a local/offline Linux dictation CLI. It records microphone audio, transcribes it locally with `faster-whisper`, and inserts the resulting text into the currently focused application when the desktop permits it.
 
-VoicePaste is terminal-first and shortcut-friendly. It does not include a GUI, tray app, daemon, cloud transcription, telemetry, or remote text correction.
+VoicePaste supports terminal dictation and a local background listener with voice activation and a desktop shortcut. Audio recognition and text cleanup run on your computer.
 
 ## Features
 
 - Local speech-to-text after model download.
 - CPU and CUDA transcription support through `faster-whisper`.
 - X11 focused-window insertion using clipboard plus `xdotool`.
-- Clipboard fallback with desktop notification and `paste-last`.
-- GNOME custom keyboard shortcut helper without a background daemon.
-- RMS-based silence stopping for shortcut-triggered dictation.
+- Clipboard fallback and `paste-last`, with desktop notifications for errors.
+- Local “start dictation” activation and “thank you” stopping.
+- Ctrl+backtick toggling through the GNOME shortcut and graphical-login listener service.
+- Unlimited recording duration while speaking, a five-second silence reminder, and automatic completion at ten seconds.
 - Technical dictation glossary and faster-whisper initial prompt support.
 - Diagnostics, recording test, transcription test, benchmark, quality test, and model comparison commands.
 
@@ -31,7 +32,7 @@ Wayland support is limited. VoicePaste reports Wayland-related tool availability
 
 - Audio is recorded and transcribed locally.
 - Raw audio is written to temporary files and deleted by default.
-- Transcripts are printed locally and stored only as the local `paste-last` state.
+- Transcripts are printed locally and saved as local `paste-last` state. The user service also writes its output to the local systemd journal.
 - No cloud ASR, LLM cleanup, telemetry, or remote logging is used by VoicePaste.
 - Downloading ASR models is the setup-time network step.
 - Review model licences and trust properties separately before downloading models.
@@ -74,11 +75,14 @@ voicepaste
 
 Press Enter to start recording, press Enter again to stop, then VoicePaste transcribes and pastes.
 
-Shortcut-friendly dictation:
+Voice-activated dictation:
 
 ```bash
-voicepaste --immediate --stop-on-silence --device cuda --model-tier cpu --quiet
+voicepaste models fetch-commands
+voicepaste install-listener
 ```
+
+Say “start dictation” to begin and “thank you” to finish. Bind Ctrl+backtick to `~/.local/bin/voicepaste-dictate` for keyboard control. The [voice activation section](#voice-activation-and-gnome-shortcut) describes silence reminders and service controls.
 
 Copy without pasting:
 
@@ -138,47 +142,50 @@ voicepaste models fetch --tier accuracy
 voicepaste --device cuda --model-tier accuracy
 ```
 
-## GNOME Keyboard Shortcut
+## Voice Activation and GNOME Shortcut
 
-VoicePaste does not install a daemon or listen for global hotkeys. Bind a normal GNOME custom shortcut to a one-shot command.
+Say **“start dictation”** to begin recording. Say **“thank you”** or press **Ctrl+backtick** to stop and paste the transcript into the focused application. Ctrl+backtick also starts recording while idle. The listener returns to waiting for the activation phrase after each transcript.
 
-Calibrate silence detection:
+Recording has no duration limit while you continue speaking. After more than five seconds of silence, a desktop popup says **“You are still recording”**. At ten seconds of silence, recording ends and the transcript is pasted automatically. The reminder appears once per silent stretch. Speaking again resets both timers. Command phrases are removed using their audio timestamps. Saying “thank you” within dictated speech also ends the recording.
 
-```bash
-voicepaste calibrate-silence
-```
-
-Optionally write the suggested threshold to config:
+Install dependencies and download the command model once:
 
 ```bash
-voicepaste calibrate-silence --write
+python -m pip install -e .
+voicepaste models fetch-commands
 ```
 
-Print shortcut instructions:
+The listener uses [Vosk](https://alphacephei.com/vosk/models) for local command recognition and the configured Whisper model for final transcription. Both run offline after model download. The listener requires 16 kHz recording and uses `[shortcut].device`, `[shortcut].model_tier`, and `[shortcut].vad_threshold`. Calibrate the microphone threshold with `voicepaste calibrate-silence --write` if needed.
+
+Run the listener in a terminal:
 
 ```bash
-voicepaste install-shortcut --dry-run
+voicepaste listen
 ```
 
-Create a helper script:
+Or enable it for graphical login:
 
 ```bash
-voicepaste install-shortcut --write-script
+voicepaste install-listener
 ```
 
-This writes:
+This installs and starts `voicepaste-listener.service` for your user and writes `~/.local/bin/voicepaste-dictate`. In GNOME Settings → Keyboard → Custom Shortcuts, bind **Ctrl+backtick** to that helper. Existing shortcuts targeting the helper automatically use the new toggle behavior. `voicepaste install-shortcut --dry-run` prints the equivalent command.
 
-```text
-~/.local/bin/voicepaste-dictate
+Useful controls:
+
+```bash
+voicepaste status
+voicepaste toggle
+voicepaste stop
+systemctl --user stop voicepaste-listener.service
+systemctl --user disable --now voicepaste-listener.service
 ```
 
-GNOME setup:
+`stop` finishes an active recording and leaves the listener available. Stopping the service discards an unfinished recording and releases the microphone. Shortcuts received during transcription leave that transcription running. An empty recording leaves the previous transcript and clipboard intact. Clipboard fallback remains available when focused insertion fails.
 
-1. Open Settings -> Keyboard -> View and Customize Shortcuts -> Custom Shortcuts.
-2. Add a shortcut named `VoicePaste Dictate`.
-3. Bind it to `~/.local/bin/voicepaste-dictate` or to the full command printed by `voicepaste install-shortcut --dry-run`.
+Idle audio stays in a short memory buffer. Active audio spools to an anonymous temporary file and is removed when the session finishes or the process exits. Final transcription splits audio at nearby pauses and uses overlapping context when speech continues across a chunk boundary, keeping audio memory bounded. Available temporary storage sets the practical capacity for long recordings.
 
-Shortcut mode starts recording immediately, shows notifications for recording/transcribing/paste/fallback/error, stops after sustained silence, and also stops at `max_seconds`. If it cuts you off too early, increase `silence_seconds` or lower `vad_threshold`. If it waits too long after you stop speaking, decrease `silence_seconds` or raise `vad_threshold`.
+The original `voicepaste --immediate --stop-on-silence` command remains available for one-shot recording; its silence and duration limits are separate from listener mode.
 
 ## Configuration
 
@@ -232,6 +239,13 @@ min_seconds = 1
 vad_threshold = 0.01
 pre_speech_padding_ms = 200
 post_speech_padding_ms = 300
+
+[listener]
+activation_phrase = "start dictation"
+deactivation_phrase = "thank you"
+silence_reminder_seconds = 5
+silence_stop_seconds = 10
+command_model = "vosk-model-small-en-us-0.15"
 ```
 
 Clipboard restore is off by default. If `restore_clipboard = true`, VoicePaste reads the current clipboard, pastes the transcript, then attempts to restore the previous clipboard content after paste.
@@ -290,15 +304,26 @@ voicepaste benchmark --seconds 8
 voicepaste install-shortcut --dry-run
 ```
 
-CI runs compile and unit tests only. It does not require a microphone, GPU, display server, CUDA, desktop insertion tools, or downloaded ASR models.
+CI runs compilation and the existing automated checks. It does not require a microphone, GPU, display server, CUDA, desktop insertion tools, or downloaded ASR models.
 
 ## Current Limitations
 
 - Linux/Ubuntu is the first target.
 - X11 insertion is validated; Wayland focused insertion is limited.
 - ASR quality depends on the downloaded model, microphone, room noise, and hardware.
-- No GUI, tray application, daemon, streaming transcription, cloud APIs, Ollama cleanup, or built-in global hotkey listener.
+- Voice control runs as a local background service; final transcripts are produced when recording stops.
+- Desktop shortcuts use GNOME keybindings. A tray interface and live transcript display are future work.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Voice Control Replay
+
+Run the end-to-end replay with local Vosk and Whisper models installed, CUDA available, and the system `libespeak-ng.so.1` library:
+
+```bash
+.venv/bin/python tests/e2e/voice_control.py /tmp/voicepaste-e2e.json
+```
+
+The replay uses synthesized audio and an isolated control socket, records notification events, and captures transcripts without pasting into desktop applications. Its JSON artifact reports phrase activation, voice and shortcut stopping, a recording exceeding two minutes, continuous speech across transcription chunks, reminders, automatic stopping after ten seconds of silence, singleton protection, and shutdown cleanup. The latest passing [validation report](docs/validation/voice-control-e2e.json) contains the recognized text and timing evidence. Failure cases are listed in `tests/e2e/voice_control_failures.md`.

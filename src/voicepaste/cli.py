@@ -8,13 +8,11 @@ notifications, configuration, and local model management.
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 
-from . import __version__
-from . import audio
-from . import clipboard
+from . import __version__, audio, clipboard
 from .config import load_config, write_default_config
 from .diagnostics import collect_diagnostics, format_checks
 from .insert import insert_or_copy
@@ -25,9 +23,6 @@ from .state import read_last_transcript, save_last_transcript
 from .transcribe import transcribe_file
 
 
-FALLBACK_MESSAGE = "No text field detected. Click where you want the text, then paste."
-
-
 @dataclass(frozen=True)
 class RuntimeOptions:
     """Runtime overrides shared by dictation and transcript handling commands."""
@@ -35,7 +30,7 @@ class RuntimeOptions:
     paste: bool = True
     quiet: bool = False
     verbose: bool = False
-    notify_events: bool = False
+    notify_errors: bool = False
     language: str | None = None
     model_tier: str | None = None
     device: str = "auto"
@@ -50,7 +45,7 @@ def _runtime_options(args: argparse.Namespace) -> RuntimeOptions:
         paste=not (no_paste or copy_only),
         quiet=bool(getattr(args, "quiet", False)),
         verbose=bool(getattr(args, "verbose", False)),
-        notify_events=bool(getattr(args, "immediate", False)),
+        notify_errors=bool(getattr(args, "immediate", False)),
         language=getattr(args, "language", None),
         model_tier=getattr(args, "model_tier", None) or getattr(args, "tier", None),
         device=getattr(args, "device", "auto"),
@@ -76,19 +71,13 @@ def _handle_transcript(text: str, options: RuntimeOptions | None = None) -> int:
         print(text)
     if options.paste:
         result = insert_or_copy(text, cfg.insertion)
-        if not result.inserted:
-            notify(FALLBACK_MESSAGE)
         if result.inserted:
             print(f"[voicepaste] inserted ({result.message})", file=sys.stderr)
-            if options.notify_events:
-                notify("Pasted transcription.")
         elif result.copied:
             print(f"[voicepaste] copied fallback ({result.message})", file=sys.stderr)
-            if options.notify_events:
-                notify("Copied transcription to clipboard. Click where you want it, then paste.")
         else:
             print(f"[voicepaste] fallback without clipboard ({result.message})", file=sys.stderr)
-            if options.notify_events:
+            if options.notify_errors:
                 notify(f"Could not paste or copy: {result.message}")
         return 0
     from .insert import session_type
@@ -96,11 +85,9 @@ def _handle_transcript(text: str, options: RuntimeOptions | None = None) -> int:
     copied, message = clipboard.copy_text(text, session_type())
     if copied:
         print(f"[voicepaste] copied ({message}); paste skipped", file=sys.stderr)
-        if options.notify_events:
-            notify("Copied transcription to clipboard.")
     else:
         print(f"[voicepaste] clipboard unavailable ({message}); paste skipped", file=sys.stderr)
-        if options.notify_events:
+        if options.notify_errors:
             notify(f"Could not copy transcription: {message}")
     return 0
 
@@ -287,7 +274,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             paste=options.paste,
             quiet=options.quiet,
             verbose=options.verbose,
-            notify_events=True,
+            notify_errors=True,
             language=options.language,
             model_tier=model_tier,
             device=device,
@@ -297,7 +284,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         min_seconds = _shortcut_value(args.min_seconds, shortcut.min_seconds)
         vad_threshold = _shortcut_value(args.vad_threshold, shortcut.vad_threshold)
         stop_on_silence = bool(getattr(args, "stop_on_silence", False) or shortcut.stop_on_silence)
-        notify("Recording started.")
         recording = audio.record_immediate(
             cfg.record_sample_rate,
             stop_on_silence=stop_on_silence,
@@ -310,14 +296,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         if options.verbose:
             stop_message = f"stopped: {recording.reason} after {recording.duration_seconds:.2f}s"
             print(f"[voicepaste] {stop_message}", file=sys.stderr)
-            notify(stop_message)
     else:
         path = audio.record_until_enter(cfg.record_sample_rate, cfg.max_record_seconds)
     try:
         stats = audio.validate_audio(path)
         print(f"[voicepaste] captured {stats.duration_seconds:.2f}s; transcribing...", file=sys.stderr)
-        if options.notify_events:
-            notify("Transcribing...")
         result = transcribe_file(path, cfg, tier=options.model_tier, device=options.device, language=options.language)
         return _handle_transcript(result.text, options)
     finally:
@@ -328,8 +311,57 @@ def cmd_run(args: argparse.Namespace) -> int:
 def recommended_shortcut_command() -> str:
     """Build the recommended command for a GNOME custom keyboard shortcut."""
 
-    executable = Path.cwd() / ".venv" / "bin" / "voicepaste"
-    return f"{executable} --immediate --stop-on-silence --device cuda --model-tier cpu --quiet"
+    import shlex
+
+    return f"{shlex.quote(sys.executable)} -m voicepaste toggle"
+
+
+def cmd_listen(args: argparse.Namespace) -> int:
+    """Listen locally for activation phrases and shortcut controls."""
+    import signal
+
+    from .listener import run_listener
+
+    def terminate(signum, frame):
+        raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGTERM, terminate)
+    options = RuntimeOptions(paste=not args.copy_only, notify_errors=True)
+
+    def event(name, **details):
+        print(f"[voicepaste] {name}", file=sys.stderr, flush=True)
+
+    try:
+        run_listener(load_config(), deliver=lambda text: _handle_transcript(text, options), event=event)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    return 0
+
+
+def cmd_control(args: argparse.Namespace) -> int:
+    """Control the listener from a desktop shortcut or terminal."""
+    import json
+
+    from .control import send_control
+
+    print(json.dumps(send_control(args.command)))
+    return 0
+
+
+def cmd_fetch_commands(args: argparse.Namespace) -> int:
+    """Install the local voice-command recognition model."""
+    from .models import fetch_command_model
+
+    print(fetch_command_model(load_config()))
+    return 0
+
+
+def cmd_install_listener(args: argparse.Namespace) -> int:
+    """Enable voice activation at graphical login and update the shortcut helper."""
+    from .service import install_listener
+
+    print(install_listener(load_config()))
+    return 0
 
 
 def shortcut_script_text(command: str | None = None) -> str:
@@ -364,13 +396,53 @@ def _write_vad_threshold(value: float) -> Path:
     """Persist a calibrated VAD threshold in the user config file."""
 
     path = write_default_config()
-    text = path.read_text(encoding="utf-8")
+    lines = path.read_text(encoding="utf-8").splitlines()
     line = f"vad_threshold = {value:.5f}"
-    if "vad_threshold =" in text:
-        lines = [line if item.strip().startswith("vad_threshold =") else item for item in text.splitlines()]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    section = ""
+    cleaned_lines = []
+    for item in lines:
+        stripped = item.strip()
+        if stripped.startswith("["):
+            section = stripped
+        if stripped.startswith("vad_threshold =") and section != "[shortcut]":
+            continue
+        cleaned_lines.append(item)
+    lines = cleaned_lines
+
+    shortcut_start = next((index for index, item in enumerate(lines) if item.strip() == "[shortcut]"), None)
+    if shortcut_start is None:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines:
+            lines.append("")
+        lines.extend(("[shortcut]", line))
     else:
-        path.write_text(text.rstrip() + "\n" + line + "\n", encoding="utf-8")
+        shortcut_end = next(
+            (
+                index
+                for index in range(shortcut_start + 1, len(lines))
+                if lines[index].lstrip().startswith("[")
+            ),
+            len(lines),
+        )
+        threshold_index = next(
+            (
+                index
+                for index in range(shortcut_start + 1, shortcut_end)
+                if lines[index].strip().startswith("vad_threshold =")
+            ),
+            None,
+        )
+        if threshold_index is None:
+            insertion_index = shortcut_end
+            while insertion_index > shortcut_start + 1 and not lines[insertion_index - 1].strip():
+                insertion_index -= 1
+            lines.insert(insertion_index, line)
+        else:
+            lines[threshold_index] = line
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
@@ -413,6 +485,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vad-threshold", type=float, default=None, help="RMS threshold below which audio is treated as silence")
     parser.add_argument("--verbose", action="store_true", help="print extra recording stop details")
     sub = parser.add_subparsers(dest="command")
+
+    listen = sub.add_parser("listen", help="listen for start dictation and thank you, with unlimited recording")
+    listen.add_argument("--copy-only", action="store_true", help="copy transcripts without simulating paste")
+    listen.set_defaults(func=cmd_listen)
+    install_listener = sub.add_parser("install-listener", help="enable the listener at login and update the shortcut helper")
+    install_listener.set_defaults(func=cmd_install_listener)
+    for name in ("toggle", "stop", "status", "shutdown"):
+        control = sub.add_parser(name, help=f"send {name} to the running voice listener")
+        control.set_defaults(func=cmd_control)
 
     doctor = sub.add_parser("doctor", help="report local hardware, desktop, audio, and ASR capability")
     doctor.set_defaults(func=cmd_doctor)
@@ -478,6 +559,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     models = sub.add_parser("models")
     models_sub = models.add_subparsers(dest="models_command", required=True)
+    commands = models_sub.add_parser("fetch-commands", help="download the local voice-command model")
+    commands.set_defaults(func=cmd_fetch_commands)
     fetch = models_sub.add_parser("fetch", help="download a model for offline use")
     fetch.add_argument("--tier", required=True, choices=tier_choices, help="model tier to download for offline use")
     fetch.set_defaults(func=cmd_models_fetch)
@@ -505,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nInterrupted.", file=sys.stderr)
         return 130
     except Exception as exc:
-        if "args" in locals() and getattr(args, "immediate", False):
+        if "args" in locals() and (getattr(args, "immediate", False) or args.command in {"listen", "toggle", "stop"}):
             notify(f"VoicePaste error: {exc}")
         print(f"voicepaste: {exc}", file=sys.stderr)
         return 1

@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 """Local faster-whisper transcription backend."""
 
+from __future__ import annotations
+
+import time
 from dataclasses import dataclass
 from pathlib import Path
-import time
+from typing import BinaryIO
 
 from .config import Config
 from .models import require_local_model
@@ -96,3 +97,74 @@ def transcribe_file(
         device=selected_device,
         compute_type=compute_type,
     )
+
+
+class RecordingTranscriber:
+    """Reuse a local model and transcribe long PCM recordings in bounded chunks."""
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+        self.model = None
+
+    def _silence_boundary(self, recording: BinaryIO, target: int, samples: int) -> tuple[int, bool]:
+        import numpy as np
+
+        rate = self.cfg.record_sample_rate
+        if target >= samples:
+            return samples, True
+        start = max(0, target - 4 * rate)
+        end = min(samples, target + 4 * rate)
+        recording.seek(start * 2)
+        data = np.frombuffer(recording.read((end - start) * 2), dtype="<i2").astype(np.float32) / 32768
+        block = rate // 10
+        framed = data[:len(data) // block * block].reshape(-1, block)
+        quiet = np.sqrt(np.mean(framed * framed, axis=1)) < 0.001
+        edges = np.diff(np.concatenate(([False], quiet, [False])).astype(np.int8))
+        candidates = [
+            start + (left + right) * block // 2
+            for left, right in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True)
+            if right - left >= 3
+        ]
+        if candidates:
+            return int(min(candidates, key=lambda position: abs(position - target))), True
+        return target, False
+
+    def transcribe(self, recording: BinaryIO, samples: int) -> str:
+        """Read mono 16-bit PCM, with overlapping context at chunk boundaries."""
+        import numpy as np
+        from faster_whisper import WhisperModel
+
+        cfg = self.cfg
+        if self.model is None:
+            device, compute = select_device_and_compute(cfg.shortcut.device)
+            self.model = WhisperModel(
+                str(require_local_model(cfg, cfg.shortcut.model_tier)), device=device, compute_type=compute
+            )
+        rate = cfg.record_sample_rate
+        stride = 20 * rate
+        overlap = 2 * rate
+        text = []
+        core_start = 0
+        starts_in_silence = True
+        while core_start < samples:
+            core_end, ends_in_silence = self._silence_boundary(recording, core_start + stride, samples)
+            start = core_start if starts_in_silence else max(0, core_start - overlap)
+            end = core_end if ends_in_silence else min(samples, core_end + overlap)
+            recording.seek(start * 2)
+            data = np.frombuffer(recording.read((end - start) * 2), dtype="<i2").astype(np.float32) / 32768
+            if not data.size or np.max(np.abs(data)) < 0.001:
+                core_start = core_end
+                starts_in_silence = ends_in_silence
+                continue
+            segments, _ = self.model.transcribe(
+                data, language=cfg.language, vad_filter=True, word_timestamps=True,
+                initial_prompt=cfg.initial_prompt or None,
+            )
+            for segment in segments:
+                for word in segment.words or []:
+                    midpoint = start + (word.start + word.end) * rate / 2
+                    if (starts_in_silence or core_start <= midpoint) and (ends_in_silence or midpoint < core_end):
+                        text.append(word.word)
+            core_start = core_end
+            starts_in_silence = ends_in_silence
+        return "".join(text).strip()

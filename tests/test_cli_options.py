@@ -1,4 +1,5 @@
 from voicepaste.cli import RuntimeOptions, _handle_transcript
+from voicepaste.insert import InsertResult
 
 
 def test_copy_only_avoids_paste(monkeypatch, capsys):
@@ -28,3 +29,31 @@ def test_no_paste_avoids_paste(monkeypatch):
 
     assert paste_calls == []
     assert copy_calls == ["hello"]
+
+
+def test_successful_paste_does_not_notify(monkeypatch):
+    notifications = []
+    monkeypatch.setattr("voicepaste.cli.save_last_transcript", lambda text: None)
+    monkeypatch.setattr(
+        "voicepaste.cli.insert_or_copy",
+        lambda text, cfg: InsertResult(inserted=True, copied=True, message="pasted"),
+    )
+    monkeypatch.setattr("voicepaste.cli.notify", lambda message: notifications.append(message))
+
+    assert _handle_transcript("hello", RuntimeOptions(quiet=True, notify_errors=True)) == 0
+
+    assert notifications == []
+
+
+def test_failed_paste_and_copy_notifies(monkeypatch):
+    notifications = []
+    monkeypatch.setattr("voicepaste.cli.save_last_transcript", lambda text: None)
+    monkeypatch.setattr(
+        "voicepaste.cli.insert_or_copy",
+        lambda text, cfg: InsertResult(inserted=False, copied=False, message="clipboard unavailable"),
+    )
+    monkeypatch.setattr("voicepaste.cli.notify", lambda message: notifications.append(message))
+
+    assert _handle_transcript("hello", RuntimeOptions(quiet=True, notify_errors=True)) == 0
+
+    assert notifications == ["Could not paste or copy: clipboard unavailable"]

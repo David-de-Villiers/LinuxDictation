@@ -24,6 +24,16 @@ def test_load_partial_config_merges_defaults(tmp_path: Path):
     assert cfg.models.cpu == "Systran/faster-whisper-small.en"
 
 
+def test_load_config_recovers_threshold_misplaced_in_models(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text('[models]\nfast = "local-fast-model"\nvad_threshold = 0.01234\n')
+
+    cfg = load_config(path)
+
+    assert cfg.models.fast == "local-fast-model"
+    assert cfg.shortcut.vad_threshold == 0.01234
+
+
 def test_write_default_config_is_non_destructive(tmp_path: Path):
     path = tmp_path / "config.toml"
     path.write_text('model_tier = "accuracy"\n')

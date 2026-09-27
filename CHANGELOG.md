@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add local “start dictation” activation and “thank you” stopping with Vosk phrase recognition.
+- Make the Ctrl+backtick shortcut toggle unlimited recording through a singleton background listener.
+- Show “You are still recording” after five seconds of silence, then stop and transcribe automatically at ten seconds.
+- Add a graphical-session user service, bounded audio transcription, and a repeatable voice-control replay report.
+- Preserve process exit codes when running `python -m voicepaste`.
+
 ## 0.1.0 - Initial Public Release
 
 - Local/offline dictation CLI for Linux.

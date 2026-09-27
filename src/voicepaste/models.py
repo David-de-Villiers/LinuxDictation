@@ -1,9 +1,9 @@
-from __future__ import annotations
-
 """Local model path and download helpers."""
 
-from pathlib import Path
+from __future__ import annotations
+
 import re
+from pathlib import Path
 
 from .config import Config, model_dir
 
@@ -37,3 +37,31 @@ def require_local_model(cfg: Config, tier: str | None = None) -> Path:
     if not path.exists():
         raise RuntimeError(f"local model not found at {path}; run `voicepaste models fetch --tier {tier or cfg.model_tier}`")
     return path
+
+
+def fetch_command_model(cfg: Config) -> Path:
+    """Download the English command model once for offline listening."""
+    import shutil
+    import tempfile
+    from urllib.request import urlopen
+    from zipfile import ZipFile
+
+    name = cfg.listener.command_model
+    if name != "vosk-model-small-en-us-0.15":
+        raise ValueError("install custom command models manually into the model directory")
+    target = model_dir() / name
+    if target.is_dir():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=target.parent, prefix="command-model-") as temporary:
+        archive = Path(temporary) / "model.zip"
+        with urlopen(f"https://alphacephei.com/vosk/models/{name}.zip", timeout=60) as response:
+            with archive.open("wb") as output:
+                shutil.copyfileobj(response, output)
+        with ZipFile(archive) as zipped:
+            for member in zipped.namelist():
+                if not member.startswith(name + "/") or ".." in Path(member).parts:
+                    raise RuntimeError("unexpected path in command model archive")
+            zipped.extractall(temporary)
+        (Path(temporary) / name).rename(target)
+    return target

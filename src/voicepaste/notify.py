@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Desktop notification helper."""
+
+from __future__ import annotations
 
 import shutil
 import subprocess
@@ -17,7 +17,8 @@ def notify(message: str, title: str = "VoicePaste") -> bool:
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            timeout=2,
         )
         return True
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False

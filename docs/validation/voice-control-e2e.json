@@ -1,0 +1,117 @@
+{
+  "outcome": "passed",
+  "events": [
+    {
+      "event": "ready"
+    },
+    {
+      "event": "recording",
+      "sample": 75840,
+      "trigger": "voice"
+    },
+    {
+      "event": "silence-reminder",
+      "silence_seconds": 5.1
+    },
+    {
+      "event": "silence-reminder",
+      "silence_seconds": 5.1
+    },
+    {
+      "event": "stopped",
+      "trigger": "voice",
+      "seconds": 153.09
+    },
+    {
+      "event": "transcript",
+      "text": "The blue notebook is on the table. Please close the kitchen window before leaving. Put the spare keys beside the front door. Remember to charge the battery before the trip. Bring the printed schedule to the morning meeting. Our team will discuss the budget after lunch. The garden needs water every morning in summer. I left the umbrella beside the wooden chair. The train arrives at the station before sunset. We should buy fresh bread on the way home. There is a clean towel in the bathroom. The children are reading stories in the library. Please place the empty bottles in the basket. My bicycle needs a new chain this weekend. The restaurant serves warm soup in the evening. Our neighbor has planted flowers beside the fence. The camera is ready for the family portrait. This recipe requires flour and a little butter. The museum opens early on Saturday mornings. We can watch the sunrise from the balcony. Please leave the package beside the staircase. The orchestra will perform in the concert hall. I need a comfortable pillow for the journey. A small fountain stands in the central square. The final chapter explains the experiment clearly. Please bring it tomorrow."
+    },
+    {
+      "event": "idle"
+    },
+    {
+      "event": "recording",
+      "sample": 2569180,
+      "trigger": "shortcut"
+    },
+    {
+      "event": "stopped",
+      "trigger": "shortcut",
+      "seconds": 3.4633125
+    },
+    {
+      "event": "transcript",
+      "text": "The shortcut can finish this recording."
+    },
+    {
+      "event": "idle"
+    },
+    {
+      "event": "recording",
+      "sample": 2645233,
+      "trigger": "voice"
+    },
+    {
+      "event": "stopped",
+      "trigger": "voice",
+      "seconds": 25.83
+    },
+    {
+      "event": "transcript",
+      "text": "The first parcel contains a red notebook for the morning meeting. The second parcel contains a green folder for the afternoon meeting. The third parcel contains a blue pencil for the evening meeting. The fourth parcel contains a yellow envelope for the weekly meeting. The fifth parcel contains a silver ruler for the monthly meeting. The sixth parcel contains a purple marker for the final meeting."
+    },
+    {
+      "event": "idle"
+    },
+    {
+      "event": "recording",
+      "sample": 3101468,
+      "trigger": "shortcut"
+    },
+    {
+      "event": "silence-reminder",
+      "silence_seconds": 5.028375
+    },
+    {
+      "event": "stopped",
+      "trigger": "silence",
+      "seconds": 12.828375,
+      "silence_seconds": 10.028375
+    },
+    {
+      "event": "transcript",
+      "text": "The silence timeout should finish this recording."
+    },
+    {
+      "event": "idle"
+    },
+    {
+      "event": "recording",
+      "sample": 3311522,
+      "trigger": "shortcut"
+    },
+    {
+      "event": "stopped",
+      "trigger": "shortcut",
+      "seconds": 0.0
+    },
+    {
+      "event": "empty"
+    },
+    {
+      "event": "idle"
+    }
+  ],
+  "notifications": [
+    "You are still recording",
+    "You are still recording",
+    "You are still recording"
+  ],
+  "transcripts": [
+    "The blue notebook is on the table. Please close the kitchen window before leaving. Put the spare keys beside the front door. Remember to charge the battery before the trip. Bring the printed schedule to the morning meeting. Our team will discuss the budget after lunch. The garden needs water every morning in summer. I left the umbrella beside the wooden chair. The train arrives at the station before sunset. We should buy fresh bread on the way home. There is a clean towel in the bathroom. The children are reading stories in the library. Please place the empty bottles in the basket. My bicycle needs a new chain this weekend. The restaurant serves warm soup in the evening. Our neighbor has planted flowers beside the fence. The camera is ready for the family portrait. This recipe requires flour and a little butter. The museum opens early on Saturday mornings. We can watch the sunrise from the balcony. Please leave the package beside the staircase. The orchestra will perform in the concert hall. I need a comfortable pillow for the journey. A small fountain stands in the central square. The final chapter explains the experiment clearly. Please bring it tomorrow.",
+    "The shortcut can finish this recording.",
+    "The first parcel contains a red notebook for the morning meeting. The second parcel contains a green folder for the afternoon meeting. The third parcel contains a blue pencil for the evening meeting. The fourth parcel contains a yellow envelope for the weekly meeting. The fifth parcel contains a silver ruler for the monthly meeting. The sixth parcel contains a purple marker for the final meeting.",
+    "The silence timeout should finish this recording."
+  ],
+  "failures": []
+}
