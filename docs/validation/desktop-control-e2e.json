@@ -1,0 +1,46 @@
+{
+  "outcome": "passed",
+  "checks": [
+    {
+      "case": "playback and own microphone do not pause listening",
+      "passed": true
+    },
+    {
+      "case": "competing capture stops listener",
+      "status": {
+        "state": "paused",
+        "enabled": true,
+        "reason": "Microphone in use: pw-record"
+      },
+      "listener_pid": "0"
+    },
+    {
+      "case": "second recorder keeps listener paused",
+      "passed": true
+    },
+    {
+      "case": "manual disable persists after recorder exit and watcher restart",
+      "passed": true
+    },
+    {
+      "case": "manual enable resumes",
+      "passed": true
+    },
+    {
+      "case": "automatic resume after capture closes",
+      "passed": true
+    },
+    {
+      "case": "dock primary action toggles listening",
+      "passed": true
+    },
+    {
+      "case": "dock enable, disable, and status actions",
+      "passed": true
+    },
+    {
+      "case": "OBS open pauses and OBS close resumes",
+      "passed": true
+    }
+  ]
+}

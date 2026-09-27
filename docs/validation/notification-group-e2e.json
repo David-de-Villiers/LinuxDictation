@@ -1,0 +1,11 @@
+{
+  "outcome": "passed",
+  "application": "VoicePaste",
+  "desktop_entry": "voicepaste",
+  "gnome_application_id": "voicepaste.desktop",
+  "notification_count": 4,
+  "messages": [
+    "VoicePaste notifications are now grouped here.",
+    "Listening controls use the same VoicePaste group."
+  ]
+}

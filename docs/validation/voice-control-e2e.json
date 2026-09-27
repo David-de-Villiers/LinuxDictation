@@ -100,6 +100,23 @@
     },
     {
       "event": "idle"
+    },
+    {
+      "event": "recording",
+      "sample": 3311522,
+      "trigger": "shortcut"
+    },
+    {
+      "event": "stopped",
+      "trigger": "shortcut",
+      "seconds": 3.90925
+    },
+    {
+      "event": "transcript",
+      "text": "Keep this unfinished dictation in the clipboard."
+    },
+    {
+      "event": "idle"
     }
   ],
   "notifications": [
@@ -112,6 +129,9 @@
     "The shortcut can finish this recording.",
     "The first parcel contains a red notebook for the morning meeting. The second parcel contains a green folder for the afternoon meeting. The third parcel contains a blue pencil for the evening meeting. The fourth parcel contains a yellow envelope for the weekly meeting. The fifth parcel contains a silver ruler for the monthly meeting. The sixth parcel contains a purple marker for the final meeting.",
     "The silence timeout should finish this recording."
+  ],
+  "paused_transcripts": [
+    "Keep this unfinished dictation in the clipboard."
   ],
   "failures": []
 }

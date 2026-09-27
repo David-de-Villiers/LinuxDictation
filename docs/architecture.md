@@ -17,7 +17,7 @@ VoicePaste is intentionally split into small modules so recording, transcription
 
 `voicepaste listen` owns one microphone stream and one private Unix control socket. `voice_commands.py` uses a cached Vosk model to recognize “start dictation” and “thank you” with sample timestamps. `listener.py` retains a short rolling buffer to recover speech following delayed activation, spools active PCM into an anonymous temporary file, and trims the stop phrase before transcription. Capture has no duration cap. After more than five seconds of silence it emits one reminder; at ten seconds it stops and transcribes automatically. Speech resets both timers.
 
-`control.py` holds a process lock for the socket lifetime. GNOME launches `voicepaste toggle` on Ctrl+backtick; active recording stops, idle listening starts capture, and transcription continues through repeated shortcut requests. A worker uses a reusable Whisper model to transcribe chunks split at pauses, with overlapping context for continuous speech. The capture loop continues handling controls during transcription. `service.py` installs a user service tied to the graphical login session.
+`control.py` holds a process lock for the socket lifetime. GNOME launches `voicepaste toggle` on Ctrl+backtick; active recording stops, idle listening starts capture, and transcription continues through repeated shortcut requests. A worker uses a reusable Whisper model to transcribe chunks split at pauses, with overlapping context for continuous speech. The capture loop continues handling controls during transcription. `service.py` installs a graphical-session watcher and its listener service. `watch.py` checks persistent manual state and `capture_monitor.py` inspects PipeWire microphone links and configured process names. The watcher requests graceful suspension, waits for interrupted dictation to be copied, and restarts the listener when competing capture ends. `desktop.py` installs the dock launcher and its menu actions.
 
 ## Module Boundaries
 
@@ -26,7 +26,11 @@ VoicePaste is intentionally split into small modules so recording, transcription
 - `transcribe.py`: local ASR backend selection and faster-whisper invocation.
 - `models.py`: model cache paths and setup-time model download.
 - `postprocess.py`: transcript cleanup and glossary replacements.
-- `insert.py`: desktop session detection and paste simulation.
+- `insert.py`: clipboard delivery and paste simulation.
+- `focus.py` and `focus_accessibility.py`: terminal window and focused accessibility-role detection.
+- `capture_monitor.py`: PipeWire microphone consumers and application process detection.
+- `watch.py`: persistent manual state and listener service lifecycle.
+- `desktop.py`: dock launcher installation.
 - `clipboard.py`: command-line clipboard integration.
 - `diagnostics.py`: environment and dependency checks for `voicepaste doctor`.
 - `config.py`: XDG paths, defaults, and typed config dataclasses.

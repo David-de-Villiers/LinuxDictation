@@ -12,6 +12,8 @@ VoicePaste supports terminal dictation and a local background listener with voic
 - Clipboard fallback and `paste-last`, with desktop notifications for errors.
 - Local “start dictation” activation and “thank you” stopping.
 - Ctrl+backtick toggling through the GNOME shortcut and graphical-login listener service.
+- A dock control for persistent enable/disable, plus automatic microphone handoff to OBS and other capture apps.
+- Context-aware terminal paste with Ctrl+Shift+V, including bracketed paste in Neovim and LazyVim.
 - Unlimited recording duration while speaking, a five-second silence reminder, and automatic completion at ten seconds.
 - Technical dictation glossary and faster-whisper initial prompt support.
 - Diagnostics, recording test, transcription test, benchmark, quality test, and model comparison commands.
@@ -169,7 +171,7 @@ Or enable it for graphical login:
 voicepaste install-listener
 ```
 
-This installs and starts `voicepaste-listener.service` for your user and writes `~/.local/bin/voicepaste-dictate`. In GNOME Settings → Keyboard → Custom Shortcuts, bind **Ctrl+backtick** to that helper. Existing shortcuts targeting the helper automatically use the new toggle behavior. `voicepaste install-shortcut --dry-run` prints the equivalent command.
+This installs `voicepaste-watch.service` and `voicepaste-listener.service` for your user, writes `~/.local/bin/voicepaste-dictate`, and adds a VoicePaste microphone icon to the GNOME dock. The watcher starts the listener whenever listening is enabled and the microphone is available. In GNOME Settings → Keyboard → Custom Shortcuts, bind **Ctrl+backtick** to that helper. Existing shortcuts targeting the helper automatically use the new toggle behavior. `voicepaste install-shortcut --dry-run` prints the equivalent command.
 
 Useful controls:
 
@@ -177,15 +179,33 @@ Useful controls:
 voicepaste status
 voicepaste toggle
 voicepaste stop
-systemctl --user stop voicepaste-listener.service
-systemctl --user disable --now voicepaste-listener.service
+voicepaste listening-disable
+voicepaste listening-enable
+voicepaste listening-status
+systemctl --user disable --now voicepaste-watch.service
 ```
 
-`stop` finishes an active recording and leaves the listener available. Stopping the service discards an unfinished recording and releases the microphone. Shortcuts received during transcription leave that transcription running. An empty recording leaves the previous transcript and clipboard intact. Clipboard fallback remains available when focused insertion fails.
+`stop` finishes an active recording and leaves the listener available. `listening-disable` persists until explicitly enabled again, including across logout and restart. It releases the microphone and copies any interrupted dictation to the clipboard. Stopping the watcher service also stops its listener; use the listening controls to preserve an unfinished recording. Shortcuts received during transcription leave that transcription running. An empty recording leaves the previous transcript and clipboard intact. Clipboard fallback remains available when focused insertion fails.
 
 Idle audio stays in a short memory buffer. Active audio spools to an anonymous temporary file and is removed when the session finishes or the process exits. Final transcription splits audio at nearby pauses and uses overlapping context when speech continues across a chunk boundary, keeping audio memory bounded. Available temporary storage sets the practical capacity for long recordings.
 
 The original `voicepaste --immediate --stop-on-silence` command remains available for one-shot recording; its silence and duration limits are separate from listener mode.
+
+## Microphone Handoff and Dock Control
+
+PipeWire normally allows several applications to record from the same microphone. VoicePaste's watcher checks microphone capture streams and stops the listener while another app is capturing. It also pauses whenever OBS is open, including when OBS has no active microphone source. Listening resumes automatically after the competing capture ends or OBS closes. Ordinary audio playback keeps listening available.
+
+The watcher remains running with the listener stopped, so it can detect when the microphone becomes available. The listener releases its microphone and model memory. An interrupted dictation finishes transcription and is copied to the clipboard; it is also available through `voicepaste paste-last`. Automatic pausing never pastes into the newly opened app. Manual disable takes priority over automatic resume.
+
+Click the **VoicePaste microphone icon** in the dock to enable or disable listening. Right-click it for **Enable listening**, **Disable listening**, and **Listening status**. A notification confirms the action. Recording reminders, errors, and listening controls share the **VoicePaste** notification group and microphone icon, linked to the dock launcher. Enabling while OBS or another microphone consumer is active leaves dictation paused until that app releases the microphone. The dock toggle controls whether VoicePaste listens; Ctrl+backtick controls an individual recording while listening is available.
+
+Automatic capture detection requires PipeWire's `pw-dump`. If monitoring is unavailable, the watcher leaves dictation paused and reports the reason through `voicepaste status`. Set `[listener].pause_on_capture = false` to turn off stream-based detection. `[listener].pause_processes` lists applications that pause dictation while open; its defaults are `obs` and `obs-studio`. Apps using audio paths outside PipeWire can be added to this list by process name or handled with the manual dock control.
+
+## Terminal, Neovim, and LazyVim Paste
+
+VoicePaste uses **Ctrl+Shift+V** in recognized terminal windows, including Kitty, Terminator, GNOME Terminal, Konsole, Alacritty, WezTerm, and other common terminals. Ordinary applications use the configured `paste_key`, which defaults to Ctrl+V. Accessible embedded terminal controls are detected through optional system AT-SPI support. If focus changes during clipboard preparation, VoicePaste leaves the text copied for manual paste.
+
+Neovim and LazyVim receive the terminal's [bracketed paste](https://neovim.io/doc/user/provider/#bracketed-paste-mode), which handles text in normal and insert modes. VoicePaste pastes through the terminal clipboard shortcut. The end-to-end check verifies both modes in clean Neovim and the installed LazyVim configuration using disposable buffers. `[insertion].terminal_paste_key` can override the terminal shortcut. Embedded terminals whose application does not expose its focused terminal role can use a manual paste or an explicit `paste_key` override.
 
 ## Configuration
 
@@ -210,6 +230,7 @@ initial_prompt = "Bayesian networks, conditional independence, d-separation, exp
 prefer_clipboard_paste = true
 restore_clipboard = false
 paste_key = "ctrl+v"
+terminal_paste_key = "ctrl+shift+v"
 
 [models]
 fast = "Systran/faster-whisper-small.en"
@@ -246,6 +267,8 @@ deactivation_phrase = "thank you"
 silence_reminder_seconds = 5
 silence_stop_seconds = 10
 command_model = "vosk-model-small-en-us-0.15"
+pause_on_capture = true
+pause_processes = ["obs", "obs-studio"]
 ```
 
 Clipboard restore is off by default. If `restore_clipboard = true`, VoicePaste reads the current clipboard, pastes the transcript, then attempts to restore the previous clipboard content after paste.
@@ -312,7 +335,7 @@ CI runs compilation and the existing automated checks. It does not require a mic
 - X11 insertion is validated; Wayland focused insertion is limited.
 - ASR quality depends on the downloaded model, microphone, room noise, and hardware.
 - Voice control runs as a local background service; final transcripts are produced when recording stops.
-- Desktop shortcuts use GNOME keybindings. A tray interface and live transcript display are future work.
+- Desktop shortcuts use GNOME keybindings. The dock launcher provides manual listening controls. A tray interface and live transcript display are future work.
 
 ## License
 
@@ -327,3 +350,15 @@ Run the end-to-end replay with local Vosk and Whisper models installed, CUDA ava
 ```
 
 The replay uses synthesized audio and an isolated control socket, records notification events, and captures transcripts without pasting into desktop applications. Its JSON artifact reports phrase activation, voice and shortcut stopping, a recording exceeding two minutes, continuous speech across transcription chunks, reminders, automatic stopping after ten seconds of silence, singleton protection, and shutdown cleanup. The latest passing [validation report](docs/validation/voice-control-e2e.json) contains the recognized text and timing evidence. Failure cases are listed in `tests/e2e/voice_control_failures.md`.
+
+## Desktop Integration Checks
+
+Run these checks from an idle X11 desktop with the listener installed. The microphone check opens disposable capture streams and a separate OBS configuration. The paste check opens disposable Kitty, GTK, Neovim, and LazyVim windows, then restores focus and the clipboard.
+
+```bash
+.venv/bin/python tests/e2e/desktop_control.py /tmp/voicepaste-desktop-e2e.json
+.venv/bin/python tests/e2e/terminal_paste.py /tmp/voicepaste-terminal-e2e.json
+.venv/bin/python tests/e2e/notification_group.py /tmp/voicepaste-notification-e2e.json
+```
+
+The passing [desktop report](docs/validation/desktop-control-e2e.json) records automatic pause/resume, manual disable persistence, and dock controls. The [paste report](docs/validation/terminal-paste-e2e.json) contains the received terminal and editor text. The [notification report](docs/validation/notification-group-e2e.json) verifies the shared VoicePaste application identity on the desktop notification bus. The voice-control replay also checks preservation of interrupted dictation through its copy-only delivery path.

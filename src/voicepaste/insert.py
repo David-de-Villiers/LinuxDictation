@@ -1,15 +1,16 @@
-from __future__ import annotations
-
 """Focused-window insertion using clipboard plus synthetic paste."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 
 from . import clipboard
 from .config import InsertionConfig
+from .focus import active_window, terminal_focused
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,19 @@ def _simulate_paste(stype: str, paste_key: str) -> tuple[bool, str]:
     try:
         if stype == "x11" and shutil.which("xdotool"):
             subprocess.run(["xdotool", "key", "--clearmodifiers", paste_key], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            return True, "pasted with xdotool"
+            return True, f"pasted with xdotool ({paste_key})"
         if stype == "wayland" and shutil.which("wtype"):
-            keys = paste_key.lower().replace("ctrl", "ctrl").split("+")
-            if keys == ["ctrl", "v"]:
-                subprocess.run(["wtype", "-M", "ctrl", "v", "-m", "ctrl"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                return True, "pasted with wtype"
+            keys = paste_key.lower().split("+")
+            if keys in (["ctrl", "v"], ["ctrl", "shift", "v"]):
+                modifiers = keys[:-1]
+                command = ["wtype"]
+                for modifier in modifiers:
+                    command.extend(["-M", modifier])
+                command.append("v")
+                for modifier in reversed(modifiers):
+                    command.extend(["-m", modifier])
+                subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                return True, f"pasted with wtype ({paste_key})"
             return False, f"unsupported Wayland paste key: {paste_key}"
         return False, "no paste simulation tool found"
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -73,6 +81,8 @@ def insert_or_copy(text: str, cfg: InsertionConfig | None = None) -> InsertResul
 
     cfg = cfg or InsertionConfig()
     stype = session_type()
+    window = active_window() if stype == "x11" else None
+    paste_key = cfg.terminal_paste_key if terminal_focused(stype, window) else cfg.paste_key
     previous_clipboard: str | None = None
     if cfg.restore_clipboard:
         ok, previous = clipboard.read_text(stype)
@@ -81,7 +91,9 @@ def insert_or_copy(text: str, cfg: InsertionConfig | None = None) -> InsertResul
     copied, copy_msg = clipboard.copy_text(text, stype)
     if not copied:
         return InsertResult(False, False, copy_msg)
-    paste_ok, paste_msg = _simulate_paste(stype, cfg.paste_key)
+    if window and active_window() != window:
+        return InsertResult(False, True, "focus changed; transcript copied")
+    paste_ok, paste_msg = _simulate_paste(stype, paste_key)
     if paste_ok:
         time.sleep(0.05)
         if previous_clipboard is not None:

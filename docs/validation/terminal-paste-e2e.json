@@ -1,0 +1,58 @@
+{
+  "outcome": "passed",
+  "checks": [
+    {
+      "case": "terminal paste without Enter",
+      "received": "terminal paste probe",
+      "delivery": "pasted with xdotool (ctrl+shift+v)"
+    },
+    {
+      "case": "ordinary text field uses Ctrl+V",
+      "received": "ordinary text field probe",
+      "keys": [
+        {
+          "key": "Control_L",
+          "ctrl": false,
+          "shift": false
+        },
+        {
+          "key": "v",
+          "ctrl": true,
+          "shift": false
+        }
+      ]
+    },
+    {
+      "case": "Neovim normal",
+      "lines": [
+        "Dictated text: caf\u00e9, quotes ' and \".",
+        "Second line stays literal."
+      ],
+      "delivery": "pasted with xdotool (ctrl+shift+v)"
+    },
+    {
+      "case": "Neovim insert",
+      "lines": [
+        "Dictated text: caf\u00e9, quotes ' and \".",
+        "Second line stays literal."
+      ],
+      "delivery": "pasted with xdotool (ctrl+shift+v)"
+    },
+    {
+      "case": "LazyVim normal",
+      "lines": [
+        "Dictated text: caf\u00e9, quotes ' and \".",
+        "Second line stays literal."
+      ],
+      "delivery": "pasted with xdotool (ctrl+shift+v)"
+    },
+    {
+      "case": "LazyVim insert",
+      "lines": [
+        "Dictated text: caf\u00e9, quotes ' and \".",
+        "Second line stays literal."
+      ],
+      "delivery": "pasted with xdotool (ctrl+shift+v)"
+    }
+  ]
+}

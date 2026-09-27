@@ -41,6 +41,7 @@ class InsertionConfig:
     prefer_clipboard_paste: bool = True
     restore_clipboard: bool = False
     paste_key: str = "ctrl+v"
+    terminal_paste_key: str = "ctrl+shift+v"
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,8 @@ class ListenerConfig:
     silence_reminder_seconds: float = 5.0
     silence_stop_seconds: float = 10.0
     command_model: str = "vosk-model-small-en-us-0.15"
+    pause_on_capture: bool = True
+    pause_processes: list[str] = field(default_factory=lambda: ["obs", "obs-studio"])
 
 
 @dataclass(frozen=True)
@@ -260,6 +263,7 @@ def write_default_config(path: Path | None = None) -> Path:
                     "prefer_clipboard_paste = true",
                     "restore_clipboard = false",
                     'paste_key = "ctrl+v"',
+                    'terminal_paste_key = "ctrl+shift+v"',
                     "",
                     "[models]",
                     'fast = "Systran/faster-whisper-small.en"',
@@ -296,6 +300,8 @@ def write_default_config(path: Path | None = None) -> Path:
                     "silence_reminder_seconds = 5",
                     "silence_stop_seconds = 10",
                     'command_model = "vosk-model-small-en-us-0.15"',
+                    'pause_on_capture = true',
+                    'pause_processes = ["obs", "obs-studio"]',
                     "",
                 ]
             )

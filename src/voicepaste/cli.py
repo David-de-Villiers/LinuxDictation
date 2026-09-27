@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import __version__, audio, clipboard
@@ -332,7 +332,10 @@ def cmd_listen(args: argparse.Namespace) -> int:
         print(f"[voicepaste] {name}", file=sys.stderr, flush=True)
 
     try:
-        run_listener(load_config(), deliver=lambda text: _handle_transcript(text, options), event=event)
+        run_listener(
+            load_config(), deliver=lambda text: _handle_transcript(text, options),
+            deliver_paused=lambda text: _handle_transcript(text, replace(options, paste=False)), event=event,
+        )
     finally:
         signal.signal(signal.SIGTERM, previous)
     return 0
@@ -343,8 +346,52 @@ def cmd_control(args: argparse.Namespace) -> int:
     import json
 
     from .control import send_control
+    from .watch import set_enabled, watcher_status
 
-    print(json.dumps(send_control(args.command)))
+    guard = watcher_status()
+    if guard["state"] in {"paused", "disabled", "starting"} and args.command in {"status", "toggle"}:
+        if args.command == "toggle":
+            notify(guard["reason"] or "VoicePaste is starting")
+        print(json.dumps(guard))
+        return 0
+    try:
+        if args.command == "shutdown":
+            set_enabled(False)
+            args.command = "suspend"
+        status = send_control(args.command)
+    except RuntimeError:
+        if args.command != "status":
+            raise
+        status = guard
+    print(json.dumps(status))
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Manage automatic microphone handoff for the listener."""
+    from .watch import run_watcher
+
+    run_watcher(load_config())
+    return 0
+
+
+def cmd_listening(args: argparse.Namespace) -> int:
+    """Apply persistent enable/disable choices from the dock or CLI."""
+    import json
+    import subprocess
+
+    from .watch import WATCH_UNIT, set_enabled, watcher_status
+
+    if args.command == "listening-status":
+        state = watcher_status()
+        notify("VoicePaste: " + (state["reason"] or state["state"]))
+    else:
+        choice = {"listening-enable": True, "listening-disable": False, "listening-toggle": None}[args.command]
+        value = set_enabled(choice)
+        subprocess.run(["systemctl", "--user", "start", WATCH_UNIT], check=True)
+        state = {"enabled": value, "state": "enabled" if value else "disabled"}
+        notify("VoicePaste enabled; listening resumes when the microphone is free" if value else "VoicePaste disabled")
+    print(json.dumps(state))
     return 0
 
 
@@ -491,6 +538,11 @@ def build_parser() -> argparse.ArgumentParser:
     listen.set_defaults(func=cmd_listen)
     install_listener = sub.add_parser("install-listener", help="enable the listener at login and update the shortcut helper")
     install_listener.set_defaults(func=cmd_install_listener)
+    watch = sub.add_parser("watch", help="manage microphone handoff and automatic listener restarts")
+    watch.set_defaults(func=cmd_watch)
+    for name in ("listening-enable", "listening-disable", "listening-toggle", "listening-status"):
+        listening = sub.add_parser(name, help="control persistent listening from the desktop")
+        listening.set_defaults(func=cmd_listening)
     for name in ("toggle", "stop", "status", "shutdown"):
         control = sub.add_parser(name, help=f"send {name} to the running voice listener")
         control.set_defaults(func=cmd_control)

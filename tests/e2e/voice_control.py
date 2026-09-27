@@ -17,7 +17,7 @@ from queue import Queue
 import numpy as np
 
 from voicepaste.config import Config
-from voicepaste.control import socket_path
+from voicepaste.control import send_control, socket_path
 from voicepaste.listener import run_listener
 
 
@@ -50,6 +50,7 @@ def main() -> None:
     report_path = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/voicepaste-e2e.json")
     events = []
     transcripts = []
+    paused_transcripts = []
     notifications = []
     failures = []
     audio: Queue[bytes | None] = Queue(maxsize=8)
@@ -100,12 +101,20 @@ def main() -> None:
 
     def listen():
         try:
-            run_listener(cfg, frames=source(), deliver=transcripts.append, announce=notifications.append, event=event)
+            run_listener(
+                cfg,
+                frames=source(),
+                deliver=transcripts.append,
+                deliver_paused=paused_transcripts.append,
+                announce=notifications.append,
+                event=event,
+            )
         except BaseException as exc:
             failures.append(repr(exc))
 
     with tempfile.TemporaryDirectory(prefix="voicepaste-e2e-") as runtime:
         os.environ["XDG_RUNTIME_DIR"] = runtime
+        os.environ["XDG_STATE_HOME"] = str(Path(runtime) / "state")
         thread = threading.Thread(target=listen, daemon=True)
         thread.start()
         # keep the iterator responsive while commands are pending
@@ -228,7 +237,14 @@ def main() -> None:
             control("stop")
             wait_for(lambda: control("status")["state"] == "idle", "empty session idle")
             assert len(transcripts) == 4
-            control("shutdown")
+            control("toggle")
+            feed(synthesize("Keep this unfinished dictation in the clipboard."))
+            silence(1)
+            wait_for(lambda: audio.empty(), "interrupted audio consumed")
+            send_control("suspend")
+            wait_for(lambda: len(paused_transcripts) == 1, "suspended dictation preserved", timeout=90)
+            assert "unfinished dictation" in paused_transcripts[0].lower(), paused_transcripts
+            assert len(transcripts) == 4
             thread.join(10)
             assert not thread.is_alive()
             assert not list(Path(runtime).rglob("*.sock"))
@@ -247,6 +263,7 @@ def main() -> None:
                         "events": events,
                         "notifications": notifications,
                         "transcripts": transcripts,
+                        "paused_transcripts": paused_transcripts,
                         "failures": failures,
                     },
                     indent=2,

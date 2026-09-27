@@ -79,10 +79,14 @@ class Listener:
         self.silent_samples = 0
         self.reminded = False
         self.running = True
+        self.suspending = False
+        self.deliver_paused = deliver
 
     @property
     def state(self) -> str:
         """Return the user-visible listener state."""
+        if self.suspending:
+            return "pausing"
         if self.recording is not None:
             return "recording"
         return "transcribing" if self.pending is not None else "idle"
@@ -140,6 +144,11 @@ class Listener:
             self.stop()
         elif command == "shutdown":
             self.running = False
+        elif command == "suspend":
+            self.stop()
+            self.suspending = True
+            if self.pending is None:
+                self.running = False
         elif command != "status":
             return {"error": f"unknown listener command: {command}"}
         return {"state": self.state}
@@ -151,7 +160,10 @@ class Listener:
         try:
             text = self.pending.result()
             if text:
-                self.deliver(text)
+                if self.suspending:
+                    self.deliver_paused(text)
+                else:
+                    self.deliver(text)
                 self.event("transcript", text=text)
             else:
                 self.event("empty")
@@ -163,6 +175,8 @@ class Listener:
             self.commands.reset(self.position)
             self.ring = b""
             self.event("idle")
+            if self.suspending:
+                self.running = False
 
     def feed(self, pcm: bytes) -> None:
         """Process one microphone block without imposing a duration limit."""
@@ -208,6 +222,7 @@ def run_listener(
     cfg: Config,
     *,
     deliver: Callable[[str], object],
+    deliver_paused: Callable[[str], object] | None = None,
     frames: Iterator[bytes | None] | None = None,
     announce: Callable[[str], object] = notify,
     event: Callable | None = None,
@@ -216,6 +231,7 @@ def run_listener(
     event = event or (lambda name, **details: None)
     with ControlServer() as server:
         listener = Listener(cfg, deliver, announce, event)
+        listener.deliver_paused = deliver_paused or deliver
         try:
 
             def run(source):
@@ -230,7 +246,20 @@ def run_listener(
 
             if frames is None:
                 with microphone_frames(cfg.record_sample_rate) as source:
-                    run(source)
+                    event("ready")
+                    for frame in source:
+                        server.poll(listener.control)
+                        if not listener.running or listener.suspending:
+                            break
+                        listener.finish_transcription()
+                        if frame:
+                            listener.feed(frame)
+                while listener.running and listener.suspending:
+                    import time
+
+                    server.poll(listener.control)
+                    listener.finish_transcription()
+                    time.sleep(0.05)
             else:
                 run(frames)
         finally:
